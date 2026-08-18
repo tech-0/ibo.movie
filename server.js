@@ -2,11 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const corsAnywhere = require('cors-anywhere');
-
-// بەکارهێنانی puppeteer-extra و Stealth بۆ خۆدزینەوە لە بلۆک
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-puppeteer.use(StealthPlugin());
+const puppeteer = require('puppeteer');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -35,18 +31,17 @@ app.use('/proxy/', (req, res) => {
     proxy.emit('request', req, res);
 });
 
-// ٢. API ی ڕۆبۆتەکە بە سیستەمی Stealth
+// ٢. API ی ڕۆبۆتەکە
 app.post('/api/extract-video', async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: 'تکایە بەستەرێک بنێرە' });
 
-    console.log(`🔍 ڕۆبۆتی Stealth خەریکی پشکنینی ئەم لینکەیە: ${url}`);
+    console.log(`🔍 ڕۆبۆت خەریکی پشکنینی ئەم لینکەیە: ${url}`);
     
     let browser;
     try {
-      browser = await puppeteer.launch({ 
+        browser = await puppeteer.launch({ 
             headless: 'new',
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined, // ئەگەر لەسەر ڕێڕەوی لینوک بوو خۆی دەیخوێنێتەوە
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox',
@@ -59,6 +54,11 @@ app.post('/api/extract-video', async (req, res) => {
         
         const page = await browser.newPage();
         await page.setViewport({ width: 1920, height: 1080 });
+        
+        // خۆدزینەوە لە ناسنامەی ئۆتۆماتیکی
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => false });
+        });
 
         let foundVideoUrl = null;
 
@@ -83,12 +83,12 @@ app.post('/api/extract-video', async (req, res) => {
 
     } catch (error) {
         console.error('هەڵە لە ڕۆبۆتدا:', error.message);
-        res.status(500).json({ success: false, error: 'نەتوانرا پەڕەکە بکرێتەوە (سایتەکە پارێزراوە).' });
+        res.status(500).json({ success: false, error: 'نەتوانرا پەڕەکە بکرێتەوە.' });
     } finally {
         if (browser) await browser.close();
     }
 });
 
 app.listen(port, () => {
-    console.log(`🎬 سێرڤەری سینەما (Stealth) کارایە لەسەر پۆڕتی ${port}`);
+    console.log(`🎬 سێرڤەری سینەما کارایە لەسەر پۆڕتی ${port}`);
 });
