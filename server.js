@@ -57,7 +57,6 @@ app.post('/api/extract-video', async (req, res) => {
         });
         
         const page = await browser.newPage();
-        
         await page.setViewport({ width: 1920, height: 1080 });
 
         let foundVideoUrl = null;
@@ -72,10 +71,7 @@ app.post('/api/extract-video', async (req, res) => {
             request.continue();
         });
 
-        // کردنەوەی پەڕەکە بە بەکارهێنانی کاتی گونجاو
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-        // چاوەڕوانکردنی زیاتر بۆ ئەوەی سکریپتەکانی سایتەکە ڤیدیۆکە لۆد بکەن
         await new Promise(resolve => setTimeout(resolve, 8000));
 
         if (foundVideoUrl) {
@@ -84,7 +80,7 @@ app.post('/api/extract-video', async (req, res) => {
             res.json({ success: false, error: 'هیچ بەستەرێکی ڤیدیۆ نەدۆزرایەوە لەم پەڕەیەدا.' });
         }
 
-    }чити (error) {
+    } catch (error) {
         console.error('هەڵە لە ڕۆبۆتدا:', error.message);
         res.status(500).json({ success: false, error: 'نەتوانرا پەڕەکە بکرێتەوە (سایتەکە پارێزراوە).' });
     } finally {
