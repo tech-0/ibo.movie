@@ -1,8 +1,12 @@
 const express = require('express');
 const cors = require('cors');
-const puppeteer = require('puppeteer');
 const path = require('path');
 const corsAnywhere = require('cors-anywhere');
+
+// بەکارهێنانی puppeteer-extra و Stealth بۆ خۆدزینەوە لە بلۆک
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -11,13 +15,13 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ١. سیستەمی پرۆکسی بۆ ڤیدیۆکان
+// ١. پرۆکسی بۆ ڤیدیۆکان
 const proxy = corsAnywhere.createServer({
     originWhitelist: [], 
     requireHeader: [],
     removeHeaders: ['cookie', 'cookie2'],
     setHeaders: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     }
 });
 
@@ -31,12 +35,12 @@ app.use('/proxy/', (req, res) => {
     proxy.emit('request', req, res);
 });
 
-// ٢. API ی ڕۆبۆتەکە (Puppeteer) بە ڕێکخستنی پێشکەوتوو بۆ خۆدزینەوە لە بلۆک
+// ٢. API ی ڕۆبۆتەکە بە سیستەمی Stealth
 app.post('/api/extract-video', async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: 'تکایە بەستەرێک بنێرە' });
 
-    console.log(`🔍 خەریکی پشکنینی ئەم لینکەم: ${url}`);
+    console.log(`🔍 ڕۆبۆتی Stealth خەریکی پشکنینی ئەم لینکەیە: ${url}`);
     
     let browser;
     try {
@@ -48,20 +52,13 @@ app.post('/api/extract-video', async (req, res) => {
                 '--disable-dev-shm-usage',
                 '--disable-accelerated-2d-canvas',
                 '--disable-gpu',
-                '--window-size=1920x1080'
+                '--window-size=1920,1080'
             ]
         });
         
         const page = await browser.newPage();
         
-        // خۆدزینەوە لە ناسنامەی ڕۆبۆت (Anti-bot evasion)
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         await page.setViewport({ width: 1920, height: 1080 });
-        
-        // لابردنی ئاماژەی ئەوەی کە ئەمە برۆسەری ئۆتۆماتیکییە
-        await page.evaluateOnNewDocument(() => {
-            Object.defineProperty(navigator, 'webdriver', { get: () => false });
-        });
 
         let foundVideoUrl = null;
 
@@ -75,11 +72,11 @@ app.post('/api/extract-video', async (req, res) => {
             request.continue();
         });
 
-        // کردنەوەی پەڕەکە بە شێوازێک کە چاوەڕێی لۆدبوونی تەواو بکات
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
+        // کردنەوەی پەڕەکە بە بەکارهێنانی کاتی گونجاو
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-        // چاوەڕوانکردن تا ڤیدیۆکە لۆد دەبێت
-        await new Promise(resolve => setTimeout(resolve, 6000));
+        // چاوەڕوانکردنی زیاتر بۆ ئەوەی سکریپتەکانی سایتەکە ڤیدیۆکە لۆد بکەن
+        await new Promise(resolve => setTimeout(resolve, 8000));
 
         if (foundVideoUrl) {
             res.json({ success: true, videoUrl: foundVideoUrl });
@@ -87,14 +84,14 @@ app.post('/api/extract-video', async (req, res) => {
             res.json({ success: false, error: 'هیچ بەستەرێکی ڤیدیۆ نەدۆزرایەوە لەم پەڕەیەدا.' });
         }
 
-    } catch (error) {
-        console.error('هەڵە لە ڕووبۆتدا:', error.message);
-        res.status(500).json({ success: false, error: 'نەتوانرا پەڕەکە بکرێتەوە (ڕەنگە سایتەکە ڕۆبۆتەکە بلۆک بکات).' });
+    }чити (error) {
+        console.error('هەڵە لە ڕۆبۆتدا:', error.message);
+        res.status(500).json({ success: false, error: 'نەتوانرا پەڕەکە بکرێتەوە (سایتەکە پارێزراوە).' });
     } finally {
         if (browser) await browser.close();
     }
 });
 
 app.listen(port, () => {
-    console.log(`🎬 سێرڤەری سینەما کارایە لەسەر پۆڕتی ${port}`);
+    console.log(`🎬 سێرڤەری سینەما (Stealth) کارایە لەسەر پۆڕتی ${port}`);
 });
