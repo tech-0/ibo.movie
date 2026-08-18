@@ -15,6 +15,8 @@
     "cors": "^2.8.6",
     "cors-anywhere": "^0.4.4",
     "express": "^5.2.1",
-    "puppeteer": "^25.8.0"
+    "puppeteer": "^25.8.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   }
 }
