@@ -44,8 +44,9 @@ app.post('/api/extract-video', async (req, res) => {
     
     let browser;
     try {
-        browser = await puppeteer.launch({ 
+      browser = await puppeteer.launch({ 
             headless: 'new',
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined, // ئەگەر لەسەر ڕێڕەوی لینوک بوو خۆی دەیخوێنێتەوە
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox',
