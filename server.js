@@ -41,9 +41,8 @@ app.post('/api/extract-video', async (req, res) => {
     let browser;
     try {
         // لێرەدا ڕێڕەوی چڕۆم بە شێوازی خودکار دەدۆزینەوە یان ڕێڕەوی توند دەنوسین
-        browser = await puppeteer.launch({ 
+          browser = await puppeteer.launch({ 
             headless: 'new',
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined, 
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox',
