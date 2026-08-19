@@ -2,7 +2,11 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const corsAnywhere = require('cors-anywhere');
-const puppeteer = require('puppeteer');
+
+// زیادکردنی تایبەتمەندی Stealth بۆ تێپەڕاندنی Cloudflare و دژە-ڕۆبۆتەکانی سایتە کوردییەکان
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -31,7 +35,7 @@ app.use('/proxy/', (req, res) => {
     proxy.emit('request', req, res);
 });
 
-// ٢. API ی ڕۆبۆتەکە (وەشانی زیرەکتر)
+// ٢. API ی ڕۆبۆتەکە بۆ سایتە قورسەکان
 app.post('/api/extract-video', async (req, res) => {
     const { url } = req.body;
     if (!url) return res.status(400).json({ error: 'تکایە بەستەرێک بنێرە' });
@@ -46,80 +50,87 @@ app.post('/api/extract-video', async (req, res) => {
                 '--no-sandbox', 
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--window-size=1920,1080',
-                '--disable-web-security', // ڕێگەدان بە پشکنینی سێرڤەری دەرەکی (iframes)
-                '--disable-features=IsolateOrigins,site-per-process' // زۆر گرنگە بۆ بینینی ڤیدیۆی ناو iframe
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--window-size=1920,1080'
             ]
         });
         
         const page = await browser.newPage();
         await page.setViewport({ width: 1920, height: 1080 });
-        
-        // شاردنەوەی ڕۆبۆتەکە بۆ ئەوەی سایتەکان بلۆکی نەکەن
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-        await page.evaluateOnNewDocument(() => {
-            Object.defineProperty(navigator, 'webdriver', { get: () => false });
-        });
 
         let foundVideoUrl = null;
 
+        // چاودێریکردنی نێتۆرک بۆ دۆزینەوەی .m3u8
         await page.setRequestInterception(true);
         page.on('request', (request) => {
             const reqUrl = request.url();
             const resourceType = request.resourceType();
 
-            // بلۆککردنی وێنە و ستایلەکان بۆ ئەوەی پڕۆسەکە زۆر خێرا بێت
-            if (['image', 'stylesheet', 'font', 'media'].includes(resourceType) && !reqUrl.includes('.m3u8') && !reqUrl.includes('.mp4')) {
+            // ڕێگریکردن لە لۆدبوونی وێنە و فۆنت بۆ خێرایی، بەڵام ڕێگە بە iframe دەدەین
+            if (['image', 'font', 'stylesheet'].includes(resourceType)) {
                 request.abort();
                 return;
             }
 
-            // گەڕان بۆ بەستەری ڤیدیۆ (زۆرتر کراوە بۆ جۆرەکانی تر)
-            if ((reqUrl.includes('.m3u8') || reqUrl.includes('.mp4') || reqUrl.includes('.webm')) && !foundVideoUrl) {
-                // دڵنیابوونەوە لەوەی لینکی ڕیکلام نییە
-                if (!reqUrl.includes('adserver') && !reqUrl.includes('tracking')) {
-                    console.log(`✅ ڤیدیۆکە دۆزرایەوە: ${reqUrl}`);
-                    foundVideoUrl = reqUrl;
-                }
+            // ئەگەر لینکی ڤیدیۆ بوو
+            const isVideo = reqUrl.includes('.m3u8') || reqUrl.includes('.mp4') || reqUrl.includes('playlist.m3u8') || reqUrl.includes('index.m3u8');
+            const isAd = reqUrl.includes('adserver') || reqUrl.includes('tracking');
+
+            if (isVideo && !isAd && !foundVideoUrl) {
+                console.log(`✅ ڤیدیۆکە دۆزرایەوە: ${reqUrl}`);
+                foundVideoUrl = reqUrl;
             }
+            
             request.continue();
         });
 
-        // چوونە ناو سایتەکە
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
-        
-        // چاوەڕێکردن بۆ لۆدبوونی جاڤاسکریپتی سایتەکە
-        await new Promise(resolve => setTimeout(resolve, 4000));
+        console.log('چوونە ناو سایت...');
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await new Promise(resolve => setTimeout(resolve, 4000)); // چاوەڕێکردن بۆ لۆدبوونی سایتەکە
 
-        // ئەگەر ڤیدیۆکە خۆکارانە نەدۆزرایەوە، ڕۆبۆتەکە "کلیک" دەکات
+        // ئەگەر لە پەڕەی سەرەکی نەبوو، دەگەڕێین بەدوای iframe دا (تایبەت بە KurdFilm, KurdSubtitle, هتد)
         if (!foundVideoUrl) {
-            console.log('👆 ڤیدیۆ نەدۆزرایەوە... هەوڵدانی کلیک کردن لە ناوەڕاستی شاشە بۆ کارپێکردنی ڤیدیۆ (Click to Play)');
-            try {
-                // کلیک کردن لە چەقی شاشەکە (زۆربەی کات پلەیەرەکان لەوێن)
-                await page.mouse.click(960, 540);
-                await new Promise(resolve => setTimeout(resolve, 6000)); // چاوەڕێکردنی نێتۆرک دوای کلیکەکە
-            } catch (e) {
-                console.log('کێشە لە کلیک کردن ڕوویدا');
+            console.log('گەڕان بەدوای ئایفرەیم (iframe) ی شاراوەدا...');
+            
+            // هێنانە دەرەوەی هەموو ئایفرەیمەکانی ناو سایتەکە
+            const iframes = await page.$$('iframe');
+            
+            for (let iframe of iframes) {
+                if (foundVideoUrl) break;
+                
+                try {
+                    const src = await page.evaluate(el => el.src, iframe);
+                    console.log('ئایفرەیمێک دۆزرایەوە بە لینکی:', src);
+                    
+                    // گەڕان بۆ سێرڤەرە ناسراوەکانی ڤیدیۆ
+                    if (src && (src.includes('vidmoly') || src.includes('ok.ru') || src.includes('uqload') || src.includes('embed') || src.includes('player') || src.includes('vimeo'))) {
+                        console.log('ئایفرەیمەکە هی ڤیدیۆیە، ڕۆبۆت دەچێتە ناویەوە...');
+                        // ڕۆبۆتەکە دەچێتە ناو ئەو لینکەوە بۆ ئەوەی ڤیدیۆکە لۆد بکات
+                        await page.goto(src, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                        await new Promise(resolve => setTimeout(resolve, 4000));
+                        
+                        // کلیک کردن لە چەقی ڤیدیۆکە بۆ کارپێکردنی
+                        await page.mouse.click(960, 540);
+                        await new Promise(resolve => setTimeout(resolve, 4000));
+                    }
+                } catch (e) {
+                    console.log('نەتوانرا ئایفرەیمەکە بخوێنرێتەوە');
+                }
             }
         }
 
-        // پشکنینی دووەم: گەڕان بەناو تاگەکانی HTML دا ئەگەر هێشتا نەیدۆزیبوویەوە
+        // کۆتا هەوڵ: کلیک کردن لە چەقی پەڕەکە ئەگەر هیچ ئایفرەیمێکیش نەبوو
         if (!foundVideoUrl) {
-            console.log('گەڕان بەناو کۆدی HTML و iframe دا...');
-            foundVideoUrl = await page.evaluate(() => {
-                const videoTag = document.querySelector('video src, video source');
-                if (videoTag && videoTag.src && (videoTag.src.includes('.mp4') || videoTag.src.includes('.m3u8'))) {
-                    return videoTag.src;
-                }
-                return null;
-            });
+            console.log('هەوڵی کۆتایی... کلیک کردن لە شاشەکە');
+            await page.mouse.click(960, 540);
+            await new Promise(resolve => setTimeout(resolve, 5000));
         }
 
         if (foundVideoUrl) {
             res.json({ success: true, videoUrl: foundVideoUrl });
         } else {
-            res.json({ success: false, error: 'هیچ بەستەرێکی ڤیدیۆ نەدۆزرایەوە. ڕەنگە ڤیدیۆکە زۆر بەهێز پارێزراو بێت یان پێویستی بە تێپەڕاندنی کەپچا هەبێت.' });
+            res.json({ success: false, error: 'هیچ بەستەرێکی ڤیدیۆ نەدۆزرایەوە. پاراستنی سایتەکە زۆر بەهێزە.' });
         }
 
     } catch (error) {
