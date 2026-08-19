@@ -40,8 +40,10 @@ app.post('/api/extract-video', async (req, res) => {
     
     let browser;
     try {
+        // لێرەدا ڕێڕەوی چڕۆم بە شێوازی خودکار دەدۆزینەوە یان ڕێڕەوی توند دەنوسین
         browser = await puppeteer.launch({ 
             headless: 'new',
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined, 
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox',
@@ -55,7 +57,6 @@ app.post('/api/extract-video', async (req, res) => {
         const page = await browser.newPage();
         await page.setViewport({ width: 1920, height: 1080 });
         
-        // خۆدزینەوە لە ناسنامەی ئۆتۆماتیکی
         await page.evaluateOnNewDocument(() => {
             Object.defineProperty(navigator, 'webdriver', { get: () => false });
         });
@@ -83,7 +84,7 @@ app.post('/api/extract-video', async (req, res) => {
 
     } catch (error) {
         console.error('هەڵە لە ڕۆبۆتدا:', error.message);
-        res.status(500).json({ success: false, error: 'نەتوانرا پەڕەکە بکرێتەوە.' });
+        res.status(500).json({ success: false, error: 'نەتوانرا پەڕەکە بکرێتەوە: ' + error.message });
     } finally {
         if (browser) await browser.close();
     }
